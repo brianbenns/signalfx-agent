@@ -33,7 +33,13 @@ func (mf *MetricFilter) MakeFilter() (dpfilters.DatapointFilter, error) {
 
 func makeFilterSet(conf []MetricFilter) (*dpfilters.FilterSet, error) {
 	fs := make([]dpfilters.DatapointFilter, 0)
+	mtes := make([]MetricFilter, 0)
+
 	for _, mte := range conf {
+		mtes = AddOrMerge(mtes, mte)
+	}
+
+	for _, mte := range mtes {
 		f, err := mte.MakeFilter()
 		if err != nil {
 			return nil, err
@@ -44,4 +50,54 @@ func makeFilterSet(conf []MetricFilter) (*dpfilters.FilterSet, error) {
 	return &dpfilters.FilterSet{
 		Filters: fs,
 	}, nil
+}
+
+// AddOrMerge MetricFilter to list or merge with existing MetricFilter
+func AddOrMerge(mtes []MetricFilter, mf2 MetricFilter) []MetricFilter  {
+	var merged = false
+	if len(mtes) != 0  {
+		for i, mf1 := range mtes {
+			if mf1.ShouldMerge(mf2) {
+				var mergedFilter = mf1.Merge(mf2)
+				merged = true
+				mtes[i] = mergedFilter
+				break
+			}
+		}
+	}
+	if !merged {
+		mtes = append(mtes, mf2)
+	}
+	return mtes
+}
+
+// Merge mf2 MetricFilter.MetricNames into receiver mf MetricFilter.MetricNames
+func (mf *MetricFilter) Merge(mf2 MetricFilter) MetricFilter {
+	if mf2.MetricName != "" {
+		mf2.MetricNames = append(mf2.MetricNames, mf2.MetricName)
+	}
+	for _, metricName := range mf2.MetricNames {
+		mf.MetricNames = append(mf.MetricNames, metricName)
+	}
+	return *mf
+}
+
+// ShouldMerge checks if mf2 MetricFilter should be merged into receiver mf MetricFilter
+// Filters with same monitorType, negation, and dimensions should be merged
+func (mf *MetricFilter) ShouldMerge(mf2 MetricFilter) bool {
+	if mf.MonitorType != mf2.MonitorType {
+		return false
+	}
+	if mf.Negated != mf2.Negated {
+		return false
+	}
+	if len(mf.Dimensions) != len(mf2.Dimensions){
+		return false
+	}
+	for k,v := range mf.Dimensions {
+		if mf2.Dimensions[k] != v {
+			return false
+		}
+	}
+	return true
 }
